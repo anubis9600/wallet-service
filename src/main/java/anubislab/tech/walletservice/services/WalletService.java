@@ -1,14 +1,18 @@
 package anubislab.tech.walletservice.services;
 
 import java.io.IOException;
+import java.lang.reflect.Array;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Stream;
 
+import org.springframework.context.annotation.Bean;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
@@ -21,28 +25,34 @@ import anubislab.tech.walletservice.repositories.CurrencyRepository;
 import anubislab.tech.walletservice.repositories.WalletRepository;
 import anubislab.tech.walletservice.repositories.WalletTransactionRepository;
 import jakarta.transaction.Transactional;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
 @Transactional
+@Slf4j
 public class WalletService {
 
     private CurrencyRepository currencyRepository;
     private WalletRepository walletRepository;
+    private WalletRepository walletRepository2;
     private WalletTransactionRepository walletTransactionRepository;
     
 
     public WalletService(CurrencyRepository currencyRepository,
                             WalletRepository walletRepository,
-                            WalletTransactionRepository walletTransactionRepository){
+                            WalletTransactionRepository walletTransactionRepository,
+                            WalletRepository walletRepository2){
 
         this.currencyRepository = currencyRepository;
         this.walletRepository = walletRepository;
         this.walletTransactionRepository = walletTransactionRepository;
+        this.walletRepository2 = walletRepository2;
 
     }
 
     public Wallet save(AddWalletRequestDTO walletDTO){
-        Currency currency = currencyRepository.findById(walletDTO.currencyCode()).orElseThrow(()-> new RuntimeException(String.format("identifiant %s non trouve ", walletDTO.currencyCode())));
+        Currency currency = currencyRepository.findById(walletDTO.currencyCode()).orElseThrow(()-> new RuntimeException(String.format("La devise %s est introuvable", walletDTO.currencyCode())));
+        
         Wallet wallet = Wallet.builder()
                 .balance(walletDTO.balance())
                 .id(UUID.randomUUID().toString())
@@ -54,6 +64,47 @@ public class WalletService {
         return walletRepository.save(wallet);
     }
 
+    public List<WalletTransaction> walletTransfer(String sourceWalletid, String destinationWalletId, Double amount){
+        Wallet sourceWallet = walletRepository.findById(sourceWalletid).orElseThrow(()-> new RuntimeException(String.format("Ce wallet est introuvable")));
+        Wallet destinationWallet = walletRepository2.findById(destinationWalletId).orElseThrow(()-> new RuntimeException(String.format("Ce wallet de destination est introuvable")));
+        
+        if(sourceWallet.getBalance() < amount) throw new RuntimeException(String.format("Le montant est insuffisant"));
+
+        WalletTransaction sourceWalletTransaction = WalletTransaction.builder()
+                .timestamp(System.currentTimeMillis())
+                .amount(amount)
+                .currentSaleCurrencyPrice(sourceWallet.getCurrency().getSalePrice())
+                .currentPurchaseCurrencyPrice(sourceWallet.getCurrency().getPurchasePrice())
+                .wallet(destinationWallet)
+                .type(TransactionType.DEBIT)
+                .build();
+
+        walletTransactionRepository.save(sourceWalletTransaction);
+        sourceWallet.setBalance(sourceWallet.getBalance() - amount);
+        walletRepository.save(sourceWallet);
+
+        double convertedAmount=amount*(sourceWallet.getCurrency().getSalePrice()/destinationWallet.getCurrency().getPurchasePrice());
+        Double isNaN = Double.isNaN(convertedAmount)?amount:convertedAmount;
+        // log.info(":::::::::: AMOUNT INITIAL :::::::::: "+amount);
+        // log.info(":::::::::: CONVERTED AMOUNT :::::::::: "+convertedAmount);
+        // log.info(":::::::::: IS NAN :::::::::: "+isNaN);
+        WalletTransaction destinataionWalletTransaction = WalletTransaction.builder()
+                .timestamp(System.currentTimeMillis())
+                .amount(isNaN)
+                .currentSaleCurrencyPrice(destinationWallet.getCurrency().getSalePrice())
+                .currentPurchaseCurrencyPrice(destinationWallet.getCurrency().getPurchasePrice())
+                .wallet(destinationWallet)
+                .type(TransactionType.CREDIT)
+                .build();
+
+        walletTransactionRepository.save(destinataionWalletTransaction);
+        destinationWallet.setBalance(isNaN + destinationWallet.getBalance());
+        walletRepository2.save(destinationWallet);
+
+        return Arrays.asList(sourceWalletTransaction, destinataionWalletTransaction);
+    }
+
+    @Bean
     public void loadData() throws IOException{
         URI uri = new ClassPathResource("currencies.data.csv").getURI();
         Path path = Paths.get(uri);
@@ -89,7 +140,6 @@ public class WalletService {
                                 .amount(Math.random()*514)
                                 .wallet(w)
                                 .type(TransactionType.DEBIT)
-                                // .type(Math.random() > 0.5? TransactionType.DEBIT:TransactionType.DEBIT)
                                 .build();
                 walletTransactionRepository.save(debitWalletTransaction);
                 w.setBalance(w.getBalance()-debitWalletTransaction.getAmount());

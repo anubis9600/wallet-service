@@ -1,9 +1,6 @@
 package anubislab.tech.walletservice.entities;
 
-import anubislab.tech.walletservice.enums.TransactionType;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -15,16 +12,17 @@ import lombok.NoArgsConstructor;
 
 @Entity
 @Data @NoArgsConstructor @AllArgsConstructor @Builder
-public class WalletTransaction {
-    
+public class Country {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    private Long timestamp;
-    private Double amount;
-    private Double currentSaleCurrencyPrice;
-    private Double currentPurchaseCurrencyPrice;
+    private String countryName;
+    private int m49Code;
+    private String isoCode;
     @ManyToOne
-    private Wallet wallet;
-    @Enumerated(EnumType.STRING)
-    private TransactionType type;
+    private Continent continent;
+    @ManyToOne
+    private Currency currency;
+    private double longitude;
+    private double latitude;
+    private double altitude;
 }
